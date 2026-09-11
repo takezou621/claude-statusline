@@ -18,6 +18,11 @@
 
 set -euo pipefail
 
+# Render times in the OS-configured timezone: drop any TZ inherited from the
+# parent process (launchers/IDE terminals sometimes export TZ), so Python's
+# localtime falls back to /etc/localtime (the macOS System Settings region).
+unset TZ
+
 input="$(cat)"
 
 model=""

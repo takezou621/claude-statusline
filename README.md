@@ -37,6 +37,7 @@ fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | ctx 21% | g
 - **Host resolution**: `CLAUDE_STATUSLINE_GLM_HOST` if set; otherwise the origin of `ANTHROPIC_BASE_URL` when it points at z.ai / bigmodel.cn **or at a local address** (`127.*`, `localhost`, `[::1]` — treated as a routing proxy expected to forward `/api/monitor/...` and inject auth); otherwise `https://api.z.ai`.
 - **Token**: `CLAUDE_STATUSLINE_GLM_TOKEN` first (dedicated, so it never interferes with `ANTHROPIC_AUTH_TOKEN` / subscription OAuth on other routes), then `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY` — sent raw in the `Authorization` header per Z.AI's monitor API. With no token the request is sent unauthenticated, which works when a local routing proxy injects auth. Nothing is sent anywhere except the resolved quota host.
 - **Fast + polite**: `GET /api/monitor/usage/quota/limit` with a 3s timeout, cached to `${TMPDIR:-/tmp}/claude-statusline-glm.json` for 2 minutes — renders stay local; the API is hit at most once per TTL. Requires `curl`.
+- **Timezone**: reset times (Claude windows and GLM alike) always render in the OS-configured timezone — the script clears any inherited `TZ` env var and lets Python fall back to `/etc/localtime`, so the display never drifts when Claude Code is launched from a terminal or launcher that sets `TZ`.
 - **Graceful**: network failure, malformed response, or missing env simply hides the segment.
 
 ## Install
