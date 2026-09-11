@@ -1,0 +1,21 @@
+statusline.sh
+  s_939a36e3ad12b9::t_25d74618dad022 21-25
+README.md
+  s_939a36e3ad12b9::t_11ccf8a22d509c 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0addc24578e4e146c17cf1446a7b37672ae40cfb",
+  "prompts": {},
+  "sessions": {
+    "s_939a36e3ad12b9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ac47ba96-0a1f-449c-b141-5cec069c0161",
+        "model": "unknown"
+      },
+      "human_author": "takezou621 <takezou621@gmail.com>"
+    }
+  }
+}
