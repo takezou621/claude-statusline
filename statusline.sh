@@ -36,10 +36,13 @@ fields = [
     ws.get("current_dir") or d.get("cwd") or "",
     ws.get("project_dir") or "",
 ]
-sys.stdout.write("\t".join(fields))
+sys.stdout.write("\x1f".join(fields))
 ' 2>/dev/null || true)"
   if [ -n "$parsed" ]; then
-    IFS=$'\t' read -r model cur_dir proj_dir <<< "$parsed"
+    # Unit Separator (\x1f) as IFS: a NON-whitespace delimiter, so empty
+    # fields are preserved and never shift when model/project_dir is absent
+    # (a tab would collapse leading empty fields and shift everything).
+    IFS=$'\x1f' read -r model cur_dir proj_dir <<< "$parsed"
   fi
 fi
 
