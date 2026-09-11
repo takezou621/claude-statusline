@@ -31,8 +31,9 @@ When Claude Code sends no `rate_limits` (no Claude.ai subscription in play) **an
 fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | 21% | glm 42% → 15:54
 ```
 
-- **Detection**: `ANTHROPIC_BASE_URL` contains `z.ai` → `https://api.z.ai`, or `bigmodel.cn` → `https://open.bigmodel.cn`. The token is taken from `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`) — the same env Claude Code already uses, sent raw in the `Authorization` header per Z.AI's monitor API. Nothing is sent anywhere else.
-- **Override**: set `CLAUDE_STATUSLINE_GLM_HOST` (e.g. `https://api.z.ai`) to force the quota host — useful behind a proxy/mirror.
+- **Detection** (any of): the session's model name starts with `glm`; `ANTHROPIC_BASE_URL` contains `z.ai` or `bigmodel.cn`; or `CLAUDE_STATUSLINE_GLM_HOST` is set.
+- **Host resolution**: `CLAUDE_STATUSLINE_GLM_HOST` if set; otherwise the origin of `ANTHROPIC_BASE_URL` when it points at z.ai / bigmodel.cn **or at a local address** (`127.*`, `localhost`, `[::1]` — treated as a routing proxy expected to forward `/api/monitor/...` and inject auth); otherwise `https://api.z.ai`.
+- **Token**: `CLAUDE_STATUSLINE_GLM_TOKEN` first (dedicated, so it never interferes with `ANTHROPIC_AUTH_TOKEN` / subscription OAuth on other routes), then `ANTHROPIC_AUTH_TOKEN`, then `ANTHROPIC_API_KEY` — sent raw in the `Authorization` header per Z.AI's monitor API. With no token the request is sent unauthenticated, which works when a local routing proxy injects auth. Nothing is sent anywhere except the resolved quota host.
 - **Fast + polite**: `GET /api/monitor/usage/quota/limit` with a 3s timeout, cached to `${TMPDIR:-/tmp}/claude-statusline-glm.json` for 2 minutes — renders stay local; the API is hit at most once per TTL. Requires `curl`.
 - **Graceful**: network failure, malformed response, or missing env simply hides the segment.
 

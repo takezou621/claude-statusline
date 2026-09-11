@@ -93,18 +93,39 @@ sys.stdout.write("\x1f".join(fields))
 fi
 
 # --- GLM (Z.AI / Zhipu) quota fallback --------------------------------------
-# Active only when Claude Code sends no rate_limits AND the session routes
-# through a glm endpoint (or CLAUDE_STATUSLINE_GLM_HOST forces it).
-if [ -z "$q_label" ] && [ -n "${ANTHROPIC_AUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]; then
-  glm_host="${CLAUDE_STATUSLINE_GLM_HOST:-}"
-  if [ -z "$glm_host" ]; then
+# Active when Claude Code sends no rate_limits AND the session uses a glm
+# model (model name starts with "glm") or routes through a glm endpoint.
+if [ -z "$q_label" ]; then
+  glm_active=0
+  case "$model" in glm*) glm_active=1 ;; esac
+  if [ "$glm_active" = "0" ]; then
     case "${ANTHROPIC_BASE_URL:-}" in
-      *bigmodel.cn*) glm_host="https://open.bigmodel.cn" ;;
-      *z.ai*)        glm_host="https://api.z.ai" ;;
+      *z.ai*|*bigmodel.cn*) glm_active=1 ;;
     esac
   fi
-  if [ -n "$glm_host" ]; then
-    glm_token="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY:-}}"
+  [ -n "${CLAUDE_STATUSLINE_GLM_HOST:-}" ] && glm_active=1
+  if [ "$glm_active" = "1" ]; then
+    glm_host="${CLAUDE_STATUSLINE_GLM_HOST:-}"
+    if [ -z "$glm_host" ] && [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
+      # Origin (scheme://host) of ANTHROPIC_BASE_URL: a z.ai/bigmodel host is
+      # used directly; a local address is treated as a routing proxy that
+      # forwards to the monitor API and injects auth itself.
+      glm_host="$(BASE_URL="$ANTHROPIC_BASE_URL" python3 -c "
+import os
+from urllib.parse import urlparse
+u = urlparse(os.environ.get('BASE_URL', ''))
+print(u.scheme + '://' + u.netloc if u.netloc else '')
+" 2>/dev/null || true)"
+      case "$glm_host" in
+        *z.ai*|*bigmodel.cn*) : ;;
+        http://127.*|http://localhost*|http://\[::1\]*) : ;;
+        *) glm_host="https://api.z.ai" ;;
+      esac
+    fi
+    [ -z "$glm_host" ] && glm_host="https://api.z.ai"
+    # Dedicated token var first: setting ANTHROPIC_AUTH_TOKEN globally can
+    # override subscription OAuth for non-glm routes, so prefer the local one.
+    glm_token="${CLAUDE_STATUSLINE_GLM_TOKEN:-${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY:-}}}"
     glm_cache="${TMPDIR:-/tmp}/claude-statusline-glm.json"
     glm_fresh=0
     if [ -s "$glm_cache" ]; then
@@ -112,11 +133,19 @@ if [ -z "$q_label" ] && [ -n "${ANTHROPIC_AUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]
       [ "$glm_age" -lt 120 ] 2>/dev/null && glm_fresh=1
     fi
     if [ "$glm_fresh" = "0" ] && command -v curl >/dev/null 2>&1; then
-      curl -s -m 3 \
-        -H "Authorization: $glm_token" \
-        -H "Accept-Language: en-US,en" \
-        "$glm_host/api/monitor/usage/quota/limit" 2>/dev/null \
-      | python3 -c '
+      if [ -n "$glm_token" ]; then
+        # With a local token: authenticate directly against the quota host.
+        curl -s -m 3 \
+          -H "Authorization: $glm_token" \
+          -H "Accept-Language: en-US,en" \
+          "$glm_host/api/monitor/usage/quota/limit" 2>/dev/null
+      else
+        # No local token (e.g. a routing proxy holds it): try unauthenticated —
+        # a local proxy that injects auth will still answer.
+        curl -s -m 3 \
+          -H "Accept-Language: en-US,en" \
+          "$glm_host/api/monitor/usage/quota/limit" 2>/dev/null
+      fi | python3 -c '
 import json, sys, time
 try:
     d = json.load(sys.stdin)
