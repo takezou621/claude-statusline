@@ -2,14 +2,14 @@
 
 A fast, dependency-light status line for [Claude Code](https://docs.claude.com/en/docs/claude-code/overview).
 
-Shows **git branch | repo name | model** on one compact, colorized line — and nothing you don't need.
+Shows **git branch | repo name | model | context usage | session cost** on one compact, colorized line — and nothing you don't need.
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1
+fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | 8% | $0.01
 ```
 
 - **Fast by design** — one `python3` call for JSON parsing and local-only `git` calls (`--no-optional-locks`). No network, no docker/aws, no heavy subprocesses.
-- **Graceful degradation** — no git repo, detached HEAD, missing `python3`, or malformed input never breaks the line.
+- **Graceful degradation** — no git repo, detached HEAD, missing `python3`, or malformed input never breaks the line. Usage segments appear only when the data is present.
 - **No dependencies beyond the basics** — `bash`, `python3`, `git`. Works on macOS, Linux, and WSL.
 - **Monorepo friendly** — nested repos are detected from the actual git worktree, so the repo name is always the repo you are in, not the folder you launched from.
 
@@ -20,6 +20,8 @@ fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1
 | git branch | cyan | Current branch; falls back to the short SHA on detached HEAD. Hidden outside a git repo. |
 | repo name | green | Basename of the git worktree root; directory basename when not in a repo. |
 | model | magenta | `model.display_name` from the statusline JSON. |
+| context usage | default < 50%, yellow ≥ 50%, red ≥ 80% | `context_window.used_percentage`, rounded to an integer. Also red whenever `exceeds_200k_tokens` is set. Hidden when absent (e.g. before the first API response). |
+| session cost | yellow | `cost.total_cost_usd` as `$X.XX`. Client-side estimate at list price; resets when you `/clear`. Hidden when absent. |
 
 ## Install
 
