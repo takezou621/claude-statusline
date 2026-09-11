@@ -2,10 +2,10 @@
 
 A fast, dependency-light status line for [Claude Code](https://docs.claude.com/en/docs/claude-code/overview).
 
-Shows **git branch | repo name | model | context usage | session cost** on one compact, colorized line — and nothing you don't need.
+Shows **git branch | repo name | model | context usage | quota reset** on one compact, colorized line — and nothing you don't need.
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | 8% | $0.01
+fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | 8% | 5h 23% → 17:00
 ```
 
 - **Fast by design** — one `python3` call for JSON parsing and local-only `git` calls (`--no-optional-locks`). No network, no docker/aws, no heavy subprocesses.
@@ -21,7 +21,7 @@ fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | 8% | $0.01
 | repo name | green | Basename of the git worktree root; directory basename when not in a repo. |
 | model | magenta | `model.display_name` from the statusline JSON. |
 | context usage | default < 50%, yellow ≥ 50%, red ≥ 80% | `context_window.used_percentage`, rounded to an integer. Also red whenever `exceeds_200k_tokens` is set. Hidden when absent (e.g. before the first API response). |
-| session cost | yellow | `cost.total_cost_usd` as `$X.XX`. Client-side estimate at list price; resets when you `/clear`. Hidden when absent. |
+| quota reset | same thresholds as context usage | The rate-limit window with the earliest `resets_at` among `rate_limits.five_hour` / `seven_day` / `spend_limit`: `<label> <pct>% → <local reset time>`. Labels: `5h`, `7d`, `spend`. Reset time is `HH:MM` today, `MM/DD HH:MM` otherwise. Present for Claude.ai Pro/Max subscribers or behind a Claude apps gateway, after the first API response; hidden otherwise. |
 
 ## Install
 

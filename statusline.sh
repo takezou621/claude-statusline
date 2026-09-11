@@ -3,7 +3,7 @@
 # https://github.com/takezou621/claude-statusline
 #
 # Protocol: Claude Code pipes one JSON object on stdin
-# (model, workspace, cost, context_window — see README for the fields used).
+# (model, workspace, context_window, rate_limits — see README for the fields used).
 # Fast path only: python3 for JSON + local git calls with --no-optional-locks.
 # No network, no docker/aws, no heavy subprocesses. Degrades gracefully:
 # missing git/python3 or malformed input still prints a usable line.
@@ -19,13 +19,15 @@ model=""
 cur_dir=""
 proj_dir=""
 ctx_pct=""
-cost_usd=""
+q_label=""
+q_pct=""
+q_reset=""
 exceeds=""
 
 # --- Parse stdin JSON (python3; stock macOS has no jq) ----------------------
 if command -v python3 >/dev/null 2>&1; then
   parsed="$(printf '%s' "$input" | python3 -c '
-import json, sys
+import json, sys, time
 try:
     d = json.load(sys.stdin)
 except Exception:
@@ -38,17 +40,41 @@ def sub(key):
 ws = sub("workspace")
 md = sub("model")
 cw = sub("context_window")
-co = sub("cost")
 pct = cw.get("used_percentage")
 pct_s = str(int(pct)) if isinstance(pct, (int, float)) else ""
-cost = co.get("total_cost_usd")
-cost_s = f"{cost:.2f}" if isinstance(cost, (int, float)) else ""
+
+def fmt_reset(ts):
+    t = time.localtime(ts)
+    same_day = time.strftime("%Y%m%d", t) == time.strftime("%Y%m%d")
+    return time.strftime("%H:%M", t) if same_day else time.strftime("%m/%d %H:%M", t)
+
+# Quota: pick the present rate-limit window with the earliest resets_at
+# (five_hour / seven_day / spend_limit may each be independently absent).
+rl = sub("rate_limits")
+best = None
+for lbl, key in (("5h", "five_hour"), ("7d", "seven_day"), ("spend", "spend_limit")):
+    w = rl.get(key)
+    if not isinstance(w, dict):
+        continue
+    v = w.get("used_percentage")
+    v_s = str(int(v)) if isinstance(v, (int, float)) else ""
+    r = w.get("resets_at")
+    r_s = fmt_reset(r) if isinstance(r, (int, float)) else ""
+    if not v_s and not r_s:
+        continue
+    sortkey = r if isinstance(r, (int, float)) else float("inf")
+    if best is None or sortkey < best[0]:
+        best = (sortkey, lbl, v_s, r_s)
+q_label, q_pct, q_reset = (best[1], best[2], best[3]) if best else ("", "", "")
+
 fields = [
     md.get("display_name") or "",
     ws.get("current_dir") or d.get("cwd") or "",
     ws.get("project_dir") or "",
     pct_s,
-    cost_s,
+    q_label,
+    q_pct,
+    q_reset,
     "1" if d.get("exceeds_200k_tokens") else "",
 ]
 sys.stdout.write("\x1f".join(fields))
@@ -57,7 +83,7 @@ sys.stdout.write("\x1f".join(fields))
     # Unit Separator (\x1f) as IFS: a NON-whitespace delimiter, so empty
     # fields are preserved and never shift when a segment is absent
     # (a tab would collapse leading empty fields and shift everything).
-    IFS=$'\x1f' read -r model cur_dir proj_dir ctx_pct cost_usd exceeds <<< "$parsed"
+    IFS=$'\x1f' read -r model cur_dir proj_dir ctx_pct q_label q_pct q_reset exceeds <<< "$parsed"
   fi
 fi
 
@@ -87,8 +113,8 @@ C_DIM=$'\033[2m'
 C_BRANCH=$'\033[36m'   # muted cyan for the branch
 C_REPO=$'\033[32m'     # green for the repo/project name
 C_MODEL=$'\033[35m'    # magenta for the model
-C_WARN=$'\033[33m'     # yellow: context >= 50%, or the cost segment
-C_CRIT=$'\033[31m'     # red: context >= 80% or exceeds_200k_tokens
+C_WARN=$'\033[33m'     # yellow: context >= 50%, or quota >= 50%
+C_CRIT=$'\033[31m'     # red: context >= 80%, quota >= 80% or over 100%
 sep="${C_DIM} | ${C_RESET}"
 
 parts=()
@@ -112,8 +138,17 @@ if [ -n "$ctx_pct" ]; then
   fi
   parts+=("${ctx_color}${ctx_pct}%${C_RESET}")
 fi
-if [ -n "$cost_usd" ]; then
-  parts+=("${C_WARN}\$${cost_usd}${C_RESET}")
+if [ -n "$q_pct" ] || [ -n "$q_reset" ]; then
+  # Quota window: "<label> <pct>% -> <reset time>" (label/pct/reset each
+  # optional). Same color thresholds as context; over 100% is red too.
+  q_color=""
+  if [ "$q_pct" -ge 80 ] 2>/dev/null; then
+    q_color="$C_CRIT"
+  elif [ "$q_pct" -ge 50 ] 2>/dev/null; then
+    q_color="$C_WARN"
+  fi
+  q_text="${q_label:+$q_label }${q_pct:+$q_pct%}${q_reset:+ → $q_reset}"
+  parts+=("${q_color}${q_text}${C_RESET}")
 fi
 
 if [ "${#parts[@]}" -eq 0 ]; then
