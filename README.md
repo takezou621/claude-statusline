@@ -21,7 +21,20 @@ fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | 8% | 5h 23% �
 | repo name | green | Basename of the git worktree root; directory basename when not in a repo. |
 | model | magenta | `model.display_name` from the statusline JSON. |
 | context usage | default < 50%, yellow ≥ 50%, red ≥ 80% | `context_window.used_percentage`, rounded to an integer. Also red whenever `exceeds_200k_tokens` is set. Hidden when absent (e.g. before the first API response). |
-| quota reset | same thresholds as context usage | The rate-limit window with the earliest `resets_at` among `rate_limits.five_hour` / `seven_day` / `spend_limit`: `<label> <pct>% → <local reset time>`. Labels: `5h`, `7d`, `spend`. Reset time is `HH:MM` today, `MM/DD HH:MM` otherwise. Present for Claude.ai Pro/Max subscribers or behind a Claude apps gateway, after the first API response; hidden otherwise. |
+| quota reset | same thresholds as context usage | The rate-limit window with the earliest `resets_at` among `rate_limits.five_hour` / `seven_day` / `spend_limit`: `<label> <pct>% → <local reset time>`. Labels: `5h`, `7d`, `spend`. Reset time is `HH:MM` today, `MM/DD HH:MM` otherwise. Present for Claude.ai Pro/Max subscribers or behind a Claude apps gateway, after the first API response; hidden otherwise. Falls back to the [GLM quota](#glm-zai-quota) when routing through a glm endpoint. |
+
+## GLM (Z.AI) quota
+
+When Claude Code sends no `rate_limits` (no Claude.ai subscription in play) **and** the session routes through a glm endpoint, the script fetches the GLM Coding Plan quota instead and shows it as the same segment with the label `glm`:
+
+```
+fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | 21% | glm 42% → 15:54
+```
+
+- **Detection**: `ANTHROPIC_BASE_URL` contains `z.ai` → `https://api.z.ai`, or `bigmodel.cn` → `https://open.bigmodel.cn`. The token is taken from `ANTHROPIC_AUTH_TOKEN` (or `ANTHROPIC_API_KEY`) — the same env Claude Code already uses, sent raw in the `Authorization` header per Z.AI's monitor API. Nothing is sent anywhere else.
+- **Override**: set `CLAUDE_STATUSLINE_GLM_HOST` (e.g. `https://api.z.ai`) to force the quota host — useful behind a proxy/mirror.
+- **Fast + polite**: `GET /api/monitor/usage/quota/limit` with a 3s timeout, cached to `${TMPDIR:-/tmp}/claude-statusline-glm.json` for 2 minutes — renders stay local; the API is hit at most once per TTL. Requires `curl`.
+- **Graceful**: network failure, malformed response, or missing env simply hides the segment.
 
 ## Install
 

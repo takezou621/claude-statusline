@@ -4,11 +4,16 @@
 #
 # Protocol: Claude Code pipes one JSON object on stdin
 # (model, workspace, context_window, rate_limits — see README for the fields used).
-# Fast path only: python3 for JSON + local git calls with --no-optional-locks.
-# No network, no docker/aws, no heavy subprocesses. Degrades gracefully:
-# missing git/python3 or malformed input still prints a usable line.
+# Fast path: python3 for JSON + local git (--no-optional-locks).
+# GLM (Z.AI) quota: when the session routes through a glm endpoint
+# (ANTHROPIC_BASE_URL contains z.ai / bigmodel.cn) Claude Code sends no
+# rate_limits, so the script fetches GET <host>/api/monitor/usage/quota/limit
+# with ANTHROPIC_AUTH_TOKEN (raw, no Bearer) — cached for 2 minutes, 3s
+# timeout, so renders stay fast and the API is hit at most once per TTL.
+# Degrades gracefully: missing git/python3/network/malformed input still
+# prints a usable line.
 #
-# Requirements: bash, python3, git (optional — works without a repo too).
+# Requirements: bash, python3, git (optional), curl (only for the GLM quota).
 # License: MIT (see LICENSE).
 
 set -euo pipefail
@@ -84,6 +89,76 @@ sys.stdout.write("\x1f".join(fields))
     # fields are preserved and never shift when a segment is absent
     # (a tab would collapse leading empty fields and shift everything).
     IFS=$'\x1f' read -r model cur_dir proj_dir ctx_pct q_label q_pct q_reset exceeds <<< "$parsed"
+  fi
+fi
+
+# --- GLM (Z.AI / Zhipu) quota fallback --------------------------------------
+# Active only when Claude Code sends no rate_limits AND the session routes
+# through a glm endpoint (or CLAUDE_STATUSLINE_GLM_HOST forces it).
+if [ -z "$q_label" ] && [ -n "${ANTHROPIC_AUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]; then
+  glm_host="${CLAUDE_STATUSLINE_GLM_HOST:-}"
+  if [ -z "$glm_host" ]; then
+    case "${ANTHROPIC_BASE_URL:-}" in
+      *bigmodel.cn*) glm_host="https://open.bigmodel.cn" ;;
+      *z.ai*)        glm_host="https://api.z.ai" ;;
+    esac
+  fi
+  if [ -n "$glm_host" ]; then
+    glm_token="${ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_API_KEY:-}}"
+    glm_cache="${TMPDIR:-/tmp}/claude-statusline-glm.json"
+    glm_fresh=0
+    if [ -s "$glm_cache" ]; then
+      glm_age=$(( $(date +%s) - $(python3 -c "import json;print(int(json.load(open('$glm_cache')).get('fetched_at',0)))" 2>/dev/null || echo 0) ))
+      [ "$glm_age" -lt 120 ] 2>/dev/null && glm_fresh=1
+    fi
+    if [ "$glm_fresh" = "0" ] && command -v curl >/dev/null 2>&1; then
+      curl -s -m 3 \
+        -H "Authorization: $glm_token" \
+        -H "Accept-Language: en-US,en" \
+        "$glm_host/api/monitor/usage/quota/limit" 2>/dev/null \
+      | python3 -c '
+import json, sys, time
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+data = d.get("data") if isinstance(d.get("data"), dict) else d
+limits = data.get("limits") if isinstance(data, dict) else None
+best = None
+for it in limits or []:
+    if not isinstance(it, dict):
+        continue
+    r = it.get("nextResetTime")   # epoch milliseconds
+    p = it.get("percentage")
+    if not isinstance(r, (int, float)) or not isinstance(p, (int, float)):
+        continue
+    if best is None or r < best[0]:
+        best = (r, p)
+if best is None:
+    sys.exit(1)
+print(json.dumps({"fetched_at": int(time.time()), "reset_ms": best[0], "pct": int(best[1])}))
+' > "$glm_cache.tmp" 2>/dev/null && mv -f "$glm_cache.tmp" "$glm_cache" || rm -f "$glm_cache.tmp"
+    fi
+    # Read the cache (fresh or stale-but-usable) into the quota fields.
+    if [ -s "$glm_cache" ]; then
+      glm_out="$(python3 -c "
+import json, time
+try:
+    c = json.load(open('$glm_cache'))
+    t = c['reset_ms'] / 1000.0
+    if t > time.time() - 86400 * 30:
+        lt = time.localtime(t)
+        same = time.strftime('%Y%m%d', lt) == time.strftime('%Y%m%d')
+        rs = time.strftime('%H:%M', lt) if same else time.strftime('%m/%d %H:%M', lt)
+        print(c['pct'], rs, sep='\x1f')
+except Exception:
+    pass
+" 2>/dev/null || true)"
+      if [ -n "$glm_out" ]; then
+        IFS=$'\x1f' read -r q_pct q_reset <<< "$glm_out"
+        q_label="glm"
+      fi
+    fi
   fi
 fi
 
