@@ -5,10 +5,10 @@ A fast, dependency-light status line for [Claude Code](https://docs.claude.com/e
 Shows **git branch | repo name | model | context usage | quota** on one compact, colorized line — and nothing you don't need.
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | ctx 8% | 5h quota 23% → 17:00
+fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | コンテキスト 8% | 5h クォータ 23% → 17:00
 ```
 
-The two percentages measure different things and are labeled as such: `ctx` is how full this session's context window is; `5h`/`7d`/`spend`/`glm` quota is how much of the account's rate-limit/billing window is consumed.
+The two percentages measure different things and are labeled as such: `コンテキスト` (context) is how full this session's context window is; the `5h`/`7d`/`spend`/`glm`-labeled クォータ (quota) is how much of the account's rate-limit/billing window is consumed. The segment labels render in Japanese.
 
 - **Fast by design** — one `python3` call for JSON parsing and local-only `git` calls (`--no-optional-locks`). No network, no docker/aws, no heavy subprocesses.
 - **Graceful degradation** — no git repo, detached HEAD, missing `python3`, or malformed input never breaks the line. Usage segments appear only when the data is present.
@@ -22,15 +22,15 @@ The two percentages measure different things and are labeled as such: `ctx` is h
 | git branch | cyan | Current branch; falls back to the short SHA on detached HEAD. Hidden outside a git repo. |
 | repo name | green | Basename of the git worktree root; directory basename when not in a repo. |
 | model | magenta | `model.display_name` from the statusline JSON. |
-| context usage | default < 50%, yellow ≥ 50%, red ≥ 80% | `ctx <pct>%` — `context_window.used_percentage`, rounded to an integer. Also red whenever `exceeds_200k_tokens` is set. Hidden when absent (e.g. before the first API response). |
-| quota reset | same thresholds as context usage | The rate-limit window with the earliest `resets_at` among `rate_limits.five_hour` / `seven_day` / `spend_limit`: `<label> quota <pct>% → <local reset time>`. Labels: `5h`, `7d`, `spend`. Reset time is `HH:MM` today, `MM/DD HH:MM` otherwise. Present for Claude.ai Pro/Max subscribers or behind a Claude apps gateway, after the first API response; hidden otherwise. Falls back to the [GLM quota](#glm-zai-quota) when routing through a glm endpoint. |
+| context usage | default < 50%, yellow ≥ 50%, red ≥ 80% | `コンテキスト <pct>%` — `context_window.used_percentage`, rounded to an integer. Also red whenever `exceeds_200k_tokens` is set. Hidden when absent (e.g. before the first API response). |
+| quota reset | same thresholds as context usage | The rate-limit window with the earliest `resets_at` among `rate_limits.five_hour` / `seven_day` / `spend_limit`: `<label> クォータ <pct>% → <local reset time>`. Labels: `5h`, `7d`, `spend`. Reset time is `HH:MM` today, `MM/DD HH:MM` otherwise. Present for Claude.ai Pro/Max subscribers or behind a Claude apps gateway, after the first API response; hidden otherwise. Falls back to the [GLM quota](#glm-zai-quota) when routing through a glm endpoint. |
 
 ## GLM (Z.AI) quota
 
 When Claude Code sends no `rate_limits` (no Claude.ai subscription in play) **and** the session routes through a glm endpoint, the script fetches the GLM Coding Plan quota instead and shows it as the same segment with the label `glm`:
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | ctx 21% | glm quota 42% → 15:54
+fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | コンテキスト 21% | glm クォータ 42% → 15:54
 ```
 
 - **Detection** (any of): the session's model name starts with `glm`; `ANTHROPIC_BASE_URL` contains `z.ai` or `bigmodel.cn`; or `CLAUDE_STATUSLINE_GLM_HOST` is set.

@@ -239,14 +239,15 @@ fi
 if [ -n "$ctx_pct" ]; then
   # Color-code context usage: default < 50%, yellow >= 50%, red >= 80%
   # (red also when exceeds_200k_tokens is set, regardless of the percentage).
-  # Labeled "ctx" so it is not confused with the quota usage percentage.
+  # Labeled "コンテキスト" (context) so it is not confused with the quota usage
+  # percentage.
   ctx_color=""
   if [ "$exceeds" = "1" ] || [ "$ctx_pct" -ge 80 ] 2>/dev/null; then
     ctx_color="$C_CRIT"
   elif [ "$ctx_pct" -ge 50 ] 2>/dev/null; then
     ctx_color="$C_WARN"
   fi
-  parts+=("${ctx_color}ctx ${ctx_pct}%${C_RESET}")
+  parts+=("${ctx_color}コンテキスト ${ctx_pct}%${C_RESET}")
 fi
 if [ -n "$q_pct" ] || [ -n "$q_reset" ]; then
   # Quota window: "<label> <pct>% -> <reset time>" (label/pct/reset each
@@ -257,7 +258,7 @@ if [ -n "$q_pct" ] || [ -n "$q_reset" ]; then
   elif [ "$q_pct" -ge 50 ] 2>/dev/null; then
     q_color="$C_WARN"
   fi
-  q_text="${q_label:+$q_label }${q_pct:+quota ${q_pct}%}${q_reset:+ → $q_reset}"
+  q_text="${q_label:+$q_label }${q_pct:+クォータ ${q_pct}%}${q_reset:+ → $q_reset}"
   parts+=("${q_color}${q_text}${C_RESET}")
 fi
 
