@@ -1,0 +1,19 @@
+statusline.sh
+  s_3cbaeae7347981::t_8eccdc270d6f1a 240-243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4fb7a858072b955df01f6c04ce9758cecb51a6d1",
+  "prompts": {},
+  "sessions": {
+    "s_3cbaeae7347981": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "eb7b1c19-084c-44ee-9422-51d2513ad622",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "takezou621 <takezou621@gmail.com>"
+    }
+  }
+}
