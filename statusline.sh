@@ -102,10 +102,18 @@ fi
 # model (model name starts with "glm") or routes through a glm endpoint.
 if [ -z "$q_label" ]; then
   glm_active=0
-  case "$model" in glm*) glm_active=1 ;; esac
+  # Case-insensitive model match: display names vary ("glm-5.3-flash" from a
+  # remapped ID, "GLM-5.3" from a modelPicker label) and case is sensitive.
+  case "$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')" in glm*) glm_active=1 ;; esac
   if [ "$glm_active" = "0" ]; then
     case "${ANTHROPIC_BASE_URL:-}" in
       *z.ai*|*bigmodel.cn*) glm_active=1 ;;
+      # A local BASE_URL is a routing proxy (same rule as host resolution
+      # below): arm the fallback so GLM-routed sessions keep the quota
+      # segment even when the display name does not start with "glm".
+      # Harmless for non-GLM proxies — the monitor fetch just fails and
+      # the segment stays hidden.
+      http://127.*|http://localhost*|http://\[::1\]*) glm_active=1 ;;
     esac
   fi
   [ -n "${CLAUDE_STATUSLINE_GLM_HOST:-}" ] && glm_active=1
