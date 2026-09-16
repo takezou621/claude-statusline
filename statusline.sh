@@ -227,14 +227,17 @@ C_CRIT=$'\033[31m'     # red: context >= 80%, quota >= 80% or over 100%
 sep="${C_DIM} | ${C_RESET}"
 
 parts=()
+# Each segment carries a leading icon (powerline-style). Icons sit outside the
+# color codes — terminals pick their own emoji presentation, and ANSI-wrapping
+# them can render as tofu on some fonts. Delete an icon for a plainer line.
 if [ -n "$branch" ]; then
-  parts+=("${C_BRANCH}${branch}${C_RESET}")
+  parts+=("🌿 ${C_BRANCH}${branch}${C_RESET}")
 fi
 if [ -n "$repo_name" ]; then
-  parts+=("${C_REPO}${repo_name}${C_RESET}")
+  parts+=("📁 ${C_REPO}${repo_name}${C_RESET}")
 fi
 if [ -n "$model" ]; then
-  parts+=("${C_MODEL}${model}${C_RESET}")
+  parts+=("🤖 ${C_MODEL}${model}${C_RESET}")
 fi
 if [ -n "$ctx_pct" ]; then
   # Color-code context usage: default < 50%, yellow >= 50%, red >= 80%
@@ -247,7 +250,7 @@ if [ -n "$ctx_pct" ]; then
   elif [ "$ctx_pct" -ge 50 ] 2>/dev/null; then
     ctx_color="$C_WARN"
   fi
-  parts+=("${ctx_color}コンテキスト ${ctx_pct}%${C_RESET}")
+  parts+=("📊 ${ctx_color}コンテキスト ${ctx_pct}%${C_RESET}")
 fi
 if [ -n "$q_pct" ] || [ -n "$q_reset" ]; then
   # Quota window: "<label> <pct>% -> <reset time>" (label/pct/reset each
@@ -258,7 +261,7 @@ if [ -n "$q_pct" ] || [ -n "$q_reset" ]; then
   elif [ "$q_pct" -ge 50 ] 2>/dev/null; then
     q_color="$C_WARN"
   fi
-  q_text="${q_label:+$q_label }${q_pct:+クォータ ${q_pct}%}${q_reset:+ → $q_reset}"
+  q_text="⏳ ${q_label:+$q_label }${q_pct:+クォータ ${q_pct}%}${q_reset:+ → $q_reset}"
   parts+=("${q_color}${q_text}${C_RESET}")
 fi
 

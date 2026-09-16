@@ -5,10 +5,10 @@ A fast, dependency-light status line for [Claude Code](https://docs.claude.com/e
 Shows **git branch | repo name | model | context usage | quota** on one compact, colorized line — and nothing you don't need.
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | Fable 5.1 | コンテキスト 8% | 5h クォータ 23% → 17:00
+🌿 fix/issue-404-apply-fallback | 📁 cloudlegal-word-addin | 🤖 Fable 5.1 | 📊 コンテキスト 8% | ⏳ 5h クォータ 23% → 17:00
 ```
 
-The two percentages measure different things and are labeled as such: `コンテキスト` (context) is how full this session's context window is; the `5h`/`7d`/`spend`/`glm`-labeled クォータ (quota) is how much of the account's rate-limit/billing window is consumed. The segment labels render in Japanese.
+The two percentages measure different things and are labeled as such: `コンテキスト` (context) is how full this session's context window is; the `5h`/`7d`/`spend`/`glm`-labeled クォータ (quota) is how much of the account's rate-limit/billing window is consumed. The segment labels render in Japanese, and each segment carries a small icon (🌿 branch, 📁 repo, 🤖 model, 📊 context, ⏳ quota) — delete the icons in the `parts` lines for a plainer line.
 
 - **Fast by design** — one `python3` call for JSON parsing and local-only `git` calls (`--no-optional-locks`). No network, no docker/aws, no heavy subprocesses.
 - **Graceful degradation** — no git repo, detached HEAD, missing `python3`, or malformed input never breaks the line. Usage segments appear only when the data is present.
@@ -30,7 +30,7 @@ The two percentages measure different things and are labeled as such: `コンテ
 When Claude Code sends no `rate_limits` (no Claude.ai subscription in play) **and** the session routes through a glm endpoint, the script fetches the GLM Coding Plan quota instead and shows it as the same segment with the label `glm`:
 
 ```
-fix/issue-404-apply-fallback | cloudlegal-word-addin | glm-5.3[1m] | コンテキスト 21% | glm クォータ 42% → 15:54
+🌿 fix/issue-404-apply-fallback | 📁 cloudlegal-word-addin | 🤖 glm-5.3[1m] | 📊 コンテキスト 21% | ⏳ glm クォータ 42% → 15:54
 ```
 
 - **Detection** (any of): the session's model name starts with `glm`; `ANTHROPIC_BASE_URL` contains `z.ai` or `bigmodel.cn`; or `CLAUDE_STATUSLINE_GLM_HOST` is set.
