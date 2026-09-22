@@ -1,0 +1,26 @@
+statusline.sh
+  s_cc263e7e5c2fe4::t_acbb1e2975ed0c 41
+  s_cc263e7e5c2fe4::t_aa1791a77243a6 409
+  s_cc263e7e5c2fe4::t_5013820fe94a89 219-228,237-240,252,254,256-257,261-262,266-267,272-274,285,287-321,323,326-338,344-346
+  s_cc263e7e5c2fe4::t_106c31d726100a 213-218,229-230,233-236,253,268-269,282-284,339-343,347-350
+  s_cc263e7e5c2fe4::t_22d04d5dbe3141 13-15
+  s_cc263e7e5c2fe4::t_9f9ea7db423ae3 436-438,440-441,443,446-448,450-452
+README.md
+  s_cc263e7e5c2fe4::t_6d65b8ef039cbe 8,11,13,27,44,46,49,52-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9bd05958fb5cf723daf9b049e56eeba6e0f733ad",
+  "prompts": {},
+  "sessions": {
+    "s_cc263e7e5c2fe4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7707b69d-f704-4b22-bf4d-a4843b53ea13",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "takezou621 <takezou621@gmail.com>"
+    }
+  }
+}
