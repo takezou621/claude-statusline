@@ -10,9 +10,9 @@
 # rate_limits, so the script fetches GET <host>/api/monitor/usage/quota/limit
 # with ANTHROPIC_AUTH_TOKEN (raw, no Bearer) — cached for 2 minutes, 3s
 # timeout, so renders stay fast and the API is hit at most once per TTL.
-# jev-claude status: when the jev-claude Stop hook is installed
-# (~/.claude/hooks/jev), the jev segment mirrors its latest verdict and
-# today's verdict counts, read from the hook's own local log (no network).
+# jev status: when the jev-mcp judgment log is present (~/.jev/logs,
+# github.com/takezou621/jev-mcp), the jev segment mirrors today's real
+# judgments and the latest one's action, read from the log (no network).
 # Degrades gracefully: missing git/python3/network/malformed input still
 # prints a usable line.
 #
@@ -38,7 +38,7 @@ q_reset=""
 exceeds=""
 jev_state=""
 jev_counts=""
-jev_dir="${CLAUDE_STATUSLINE_JEV_DIR:-${HOME:-/nonexistent}/.claude/hooks/jev}"
+jev_log_dir="${CLAUDE_STATUSLINE_JEV_DIR:-${HOME:-/nonexistent}/.jev/logs}"
 
 # --- Parse stdin JSON (python3; stock macOS has no jq) ----------------------
 if command -v python3 >/dev/null 2>&1; then
@@ -210,28 +210,34 @@ except Exception:
   fi
 fi
 
-# --- jev-claude hook status ---------------------------------------------------
-# Reflect the jev-claude Stop hook (github.com/takezou621/jev-claude, installed
-# at ~/.claude/hooks/jev): its latest verdict (pass / block / error) and
-# today's verdict counts, read from the hook's own local log — entirely local,
-# no network. The segment is hidden when jev is not installed, shows "off"
-# when installed but disabled (jev-config.json enabled) or not registered in
-# settings.json, and "idle" when the last real verdict is older than 15
-# minutes. Entries logged by jev's own test suites (the synthetic flag, the
-# jev-mj-* projects) are excluded. Parsed once and cached until none of the
-# read files change, so re-renders between log writes cost one cache read.
-if [ -f "$jev_dir/verify-done.mjs" ] && command -v python3 >/dev/null 2>&1; then
-  jev_out="$(JEV_DIR="$jev_dir" python3 -c '
+# --- jev judgment-log status ---------------------------------------------------
+# Reflect the jev-mcp judgment log (~/.jev/logs, github.com/takezou621/jev-mcp):
+# today's real-judgment counts (pass / block / escalate, plus failed judgments
+# as a separate slot) and the latest judgment's action as the segment state —
+# entirely local, no network. The segment is hidden when the log directory
+# does not exist (jev-mcp not in use yet) and goes "idle" when the latest real
+# judgment is older than 15 minutes — yesterday's file is scanned too, so a
+# judgment written just before midnight still reads as fresh at 00:05 (and an
+# MCP server started with TZ set lands its lines in a file named by a day
+# this process computes differently around midnight). Entries logged by jev's
+# own test suites and smoke runs (model values containing "stub": stub,
+# stub-N, test-stub, dev-stub) are excluded. The log itself is sensitive
+# (0600) and carries the judge's probabilities: the scan matches only line
+# shapes, actions and timestamps — the probabilities and evidence paths are
+# never parsed or displayed. Parsed once and cached until the log files
+# change, so re-renders between log writes cost one cache read.
+if [ -d "$jev_log_dir" ] && command -v python3 >/dev/null 2>&1; then
+  jev_out="$(JEV_LOG_DIR="$jev_log_dir" python3 -c '
 import calendar, json, os, time
 
-jev_dir = os.environ["JEV_DIR"]
-home = os.path.expanduser("~")
-cfg_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
-cfg_path = os.path.join(jev_dir, "jev-config.json")
-settings_path = os.path.join(cfg_dir, "settings.json")
-# jev names its daily log in UTC (new Date().toISOString()), so pick the same
-# day — otherwise the segment goes idle every evening for UTC+ zones.
-log_path = os.path.join(jev_dir, "logs", "jev-" + time.strftime("%Y-%m-%d", time.gmtime()) + ".jsonl")
+log_dir = os.environ["JEV_LOG_DIR"]
+# jev-mcp names its daily file by the LOCAL day (log.ts: new Date() minus the
+# UTC offset), unlike jev-claude which logged in UTC — pick the same day or
+# the segment shows an empty day every evening for UTC+ zones.
+def day(n):
+    return time.strftime("%Y-%m-%d", time.localtime(time.time() - n * 86400))
+today_path = os.path.join(log_dir, "jev-" + day(0) + ".jsonl")
+paths = [(today_path, True), (os.path.join(log_dir, "jev-" + day(1) + ".jsonl"), False)]
 
 def emit(state, counts):
     print("\x1f".join((state, counts)))
@@ -243,26 +249,29 @@ def sig(p):
     except OSError:
         return "-"
 
-# Cache keyed on the exact file set we read: the log is up to a few MB/day
-# and the status line renders far more often than jev writes entries.
-key = "|".join(p + "=" + sig(p) for p in (cfg_path, settings_path, log_path))
+# Cache keyed on the exact files we read: the log is up to a few MB/day and
+# the status line renders far more often than jev writes entries.
+key = "|".join(p + "=" + sig(p) for p, _ in paths)
 # Per-uid name + O_NOFOLLOW: when TMPDIR is unset this lands in the shared
-# /tmp, where a symlink planted by another user must not be followed.
+# /tmp, where a symlink planted by another user must not be followed — on
+# the read side either, or a planted cache could paint the segment.
 cache_path = os.path.join(os.environ.get("TMPDIR") or "/tmp",
                           "claude-statusline-jev-%d.json" % os.getuid())
 try:
-    with open(cache_path) as f:
+    fd = os.open(cache_path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd) as f:
         c = json.load(f)
     out = c.get("out")
     latest = c.get("latest")
-    if c.get("key") == key and isinstance(out, list) and len(out) == 2:
-        # Re-evaluate staleness on every hit: a cached pass/block/err must
-        # still decay to idle once the verdict is older than 15 minutes,
+    if (c.get("key") == key and isinstance(out, list) and len(out) == 2
+            and out[0] in ("pass", "warn", "block", "escalate", "idle")):
+        # Re-evaluate staleness on every hit: a cached active state must
+        # still decay to idle once the judgment is older than 15 minutes,
         # even if the log stops changing.
         state = out[0]
-        if state in ("ok", "block", "err"):
-            if not isinstance(latest, (int, float)) or time.time() - latest > 900:
-                state = "idle"
+        if state != "idle" and (
+                not isinstance(latest, (int, float)) or time.time() - latest > 900):
+            state = "idle"
         emit(state, out[1])
         raise SystemExit
 except SystemExit:
@@ -270,87 +279,75 @@ except SystemExit:
 except Exception:
     pass
 
-# Same semantics as the hook itself (hookDisabled): "enabled": false stops
-# every hook, "enabled": {"stop": false} stops the Stop hook only.
-enabled = None
-try:
-    with open(cfg_path) as f:
-        enabled = json.load(f).get("enabled", None)
-except Exception:
-    pass
-latest = None        # epoch of the newest real verdict, for staleness re-checks
-latest_kind = None   # its verdict, so the state can be recomputed later
-if enabled is False or (isinstance(enabled, dict) and enabled.get("stop") is False):
-    out = ("off", "")
-else:
-    hooked = False
+latest = None        # epoch of the newest real judgment, for staleness re-checks
+latest_action = None # its action, so the state can be recomputed later
+n_pass = n_block = n_escalate = n_failed = 0
+for path, is_today in paths:
     try:
-        with open(settings_path) as f:
-            for entry in json.load(f).get("hooks", {}).get("Stop", []) or []:
-                for h in (entry or {}).get("hooks") or []:
-                    # Match this installation, not just any jev mention.
-                    if jev_dir in str((h or {}).get("command", "")):
-                        hooked = True
-    except Exception:
-        pass
-    if not hooked:
-        out = ("off", "")
-    else:
-        n_pass = n_block = n_err = 0
-        try:
-            with open(log_path, "rb") as f:
-                for raw in f:
-                    # jev writes one JSON object per line with "ts" first
-                    # (JSON.stringify of {ts, ...entry}), so a line not
-                    # shaped like that is a torn/corrupt write, not data.
-                    if not raw.startswith(b"{\"ts\":\""):
-                        continue
-                    # Only the Stop hook verdicts: other labels (bash / smoke /
-                    # doctor) answer different questions, and matching on raw
-                    # bytes keeps the scan cheap for a multi-MB daily log.
-                    if b"\"label\":\"stop\"" not in raw:
-                        continue
-                    # Test-suite entries: the synthetic flag (golden runners)
-                    # and the fixture project names of the jev test suites.
-                    if b"\"synthetic\":true" in raw:
-                        continue
-                    if b"\"project\":\"jev-mj" in raw or b"\"project\":\"sample-app\"" in raw or b"\"project\":\"genericproj\"" in raw:
-                        continue
-                    if b"\"ok\":false" in raw:
-                        kind = "err"
-                    elif b"\"decision\":\"pass\"" in raw:
-                        kind = "pass"
-                    elif b"\"decision\":\"block\"" in raw:
-                        kind = "block"
-                    else:
-                        continue
-                    if kind == "pass":
+        with open(path, "rb") as f:
+            for raw in f:
+                # jev-mcp writes one JSON object per line starting {"at": " —
+                # a line not shaped like that is not data. A line with no
+                # trailing newline is a torn write still in flight; skipping
+                # it undercounts for one render and heals on the next.
+                if not raw.startswith(b"{\"at\":\"") or not raw.endswith(b"\n"):
+                    continue
+                # Failed judgments (the judge threw; fail-open applies) are
+                # their own slot, regardless of the action the caller fell
+                # back to. Failed records carry no model value, so this check
+                # must precede the stub-model filter.
+                if b"\"status\":\"failed\"" in raw:
+                    if is_today:
+                        n_failed += 1
+                    continue
+                # Real judgments only: the test suites and smoke runs log stub
+                # model values (stub / stub-N / test-stub / dev-stub), so any
+                # model containing "stub" never counts — match the extracted
+                # value, not a prefix of the raw line. A judged record with no
+                # model value is not a real judgment either.
+                i = raw.find(b"\"model\":\"")
+                if i < 0:
+                    continue
+                j = raw.find(b"\"", i + 9)
+                if j < 0 or b"stub" in raw[i + 9:j]:
+                    continue
+                for act in ("pass", "warn", "block", "escalate"):
+                    if ("\"action\":\"%s\"" % act).encode() in raw:
+                        break
+                else:
+                    continue
+                # warn is a pass carrying a note — same count slot as pass.
+                if is_today:
+                    if act in ("pass", "warn"):
                         n_pass += 1
-                    elif kind == "block":
+                    elif act == "block":
                         n_block += 1
                     else:
-                        n_err += 1
-                    i = raw.find(b"\"ts\":\"")
-                    if i >= 0 and len(raw) >= i + 29:
-                        try:
-                            ep = calendar.timegm(time.strptime(raw[i + 6:i + 29].decode(), "%Y-%m-%dT%H:%M:%S.%f"))
-                            if latest is None or ep >= latest:
-                                latest = ep
-                                latest_kind = kind
-                        except ValueError:
-                            pass
-        except OSError:
-            pass
-        if latest_kind is None or time.time() - latest > 900:
-            state = "idle"
-        else:
-            state = latest_kind
-        counts = ""
-        if latest_kind is not None:
-            counts = "%d/%d" % (n_pass, n_block)
-            if n_err:
-                counts += "/%d" % n_err
-        out = (state, counts)
+                        n_escalate += 1
+                i = raw.find(b"\"at\":\"")
+                if i >= 0 and len(raw) >= i + 29:
+                    try:
+                        # The at field is UTC (the file name is the local day).
+                        ep = calendar.timegm(time.strptime(raw[i + 6:i + 29].decode(), "%Y-%m-%dT%H:%M:%S.%f"))
+                        if latest is None or ep >= latest:
+                            latest = ep
+                            latest_action = act
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+if latest_action is None or time.time() - latest > 900:
+    state = "idle"
+else:
+    state = latest_action
+counts = ""
+if latest_action is not None or n_failed:
+    # A day of nothing but failed judgments must still show its !N — jev
+    # fails open, so that count is the only visible trace of a judge outage.
+    counts = "%d/%d/%d" % (n_pass, n_block, n_escalate)
+    if n_failed:
+        counts += "/%d" % n_failed
+out = (state, counts)
 
 try:
     fd = os.open(cache_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
@@ -409,7 +406,7 @@ ICON_QUOTA="$(printf '\357\211\222')"   # U+F252 hourglass
 ICON_JEV="$(printf '\357\204\262')"     # U+F132 shield
 ICON_TICK="$(printf '\357\200\214')"    # U+F00C check mark  (jev pass count)
 ICON_CROSS="$(printf '\357\200\215')"   # U+F00D cross mark  (jev block count)
-ICON_ALERT="$(printf '\357\201\261')"   # U+F071 warning     (jev error count)
+ICON_ALERT="$(printf '\357\201\261')"   # U+F071 warning     (jev escalate count)
 # Each segment carries a leading Nerd Font icon (powerline-style: monochrome
 # glyphs colored by the segment's ANSI color, never emoji). They sit outside
 # the color codes and require a Nerd Font / powerline-patched terminal font —
@@ -436,23 +433,24 @@ if [ -n "$ctx_pct" ]; then
   parts+=("${ICON_CTX} ${ctx_color}ctx ${ctx_pct}%${C_RESET}")
 fi
 if [ -n "$jev_state" ]; then
-  # Decorate the raw "pass/block(/err)" counts so their meaning is visible:
-  # " 292  219  23" instead of a bare "292/219/23".
+  # Decorate the raw "pass/block/escalate(/failed)" counts so their meaning is
+  # visible: " 292  219  23 !1" instead of a bare "292/219/23/1". The failed
+  # count appears only when the day has failed judgments (fail-open traces).
   if [ -n "$jev_counts" ]; then
-    IFS=/ read -r jev_p jev_b jev_e <<< "$jev_counts"
-    jev_counts="${ICON_TICK}${jev_p} ${ICON_CROSS}${jev_b}"
+    IFS=/ read -r jev_p jev_b jev_w jev_e <<< "$jev_counts"
+    jev_counts="${ICON_TICK}${jev_p} ${ICON_CROSS}${jev_b} ${ICON_ALERT}${jev_w}"
     if [ -n "${jev_e:-}" ]; then
-      jev_counts="${jev_counts} ${ICON_ALERT}${jev_e}"
+      jev_counts="${jev_counts} ${C_CRIT}!${jev_e}${C_RESET}"
     fi
   fi
-  # jev-claude Stop-hook status: "<state> <counts>". The
-  # counts are today's verdicts from the hook's own log; the color follows the
-  # latest verdict (yellow=blocked, red=errored), dim=off/idle.
+  # jev judgment-log status: "<state> <counts>". The counts are today's real
+  # judgments from ~/.jev/logs; the color follows the latest judgment's action
+  # (red=block, yellow=escalate/warn), dim=idle.
   case "$jev_state" in
-    block)    parts+=("${ICON_JEV} ${C_WARN}jev block${jev_counts:+ $jev_counts}${C_RESET}") ;;
-    err)      parts+=("${ICON_JEV} ${C_CRIT}jev err${jev_counts:+ $jev_counts}${C_RESET}") ;;
+    block)    parts+=("${ICON_JEV} ${C_CRIT}jev block${jev_counts:+ $jev_counts}${C_RESET}") ;;
+    escalate) parts+=("${ICON_JEV} ${C_WARN}jev escalate${jev_counts:+ $jev_counts}${C_RESET}") ;;
+    warn)     parts+=("${ICON_JEV} ${C_WARN}jev warn${jev_counts:+ $jev_counts}${C_RESET}") ;;
     idle)     parts+=("${ICON_JEV} ${C_DIM}jev idle${jev_counts:+ $jev_counts}${C_RESET}") ;;
-    off)      parts+=("${ICON_JEV} ${C_DIM}jev off${C_RESET}") ;;
     *)        parts+=("${ICON_JEV} jev ok${jev_counts:+ $jev_counts}") ;;
   esac
 fi
