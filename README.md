@@ -69,7 +69,7 @@ macOS only. The segment reports whether the machine will idle-sleep or is being 
 | `sleep on` | No prevention — the system will idle-sleep normally. |
 
 - **Kept-awake states render in yellow** — a long-running job may assume the machine stays up; plain `sleep on` renders dim, background-information style.
-- **Priority**: `caffeinate` beats `no-sleep` beats `sleep off`; only when none holds does the segment read `sleep on`. A display-sleep-only assertion keeps the screen, not the system, awake, so it still reads `sleep on`.
+- **Priority**: `caffeinate` beats `no-sleep` beats `sleep off`; only when none holds does the segment read `sleep on`. A display-sleep-only assertion keeps the screen, not the system, awake, so it still reads `sleep on` — and so does powerd's ever-present "Prevent sleep while display is on" assertion, which just reflects that the display is on (ordinary active use), so it is ignored.
 - **Cached**: at most one probe per 15 s — every other render reads the small cache file (`${TMPDIR:-/tmp}/claude-statusline-sleep-<uid>.txt`, created `0600` with `O_NOFOLLOW`) in plain bash, with no interpreter start.
 - **Graceful**: hidden entirely where `pmset`/`pgrep` are unavailable (Linux, WSL, containers).
 

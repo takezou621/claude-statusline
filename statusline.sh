@@ -373,26 +373,31 @@ fi
 # reads the cache file here (one id + one date fork, no interpreter), and a few
 # seconds of stale awake/asleep label is harmless.
 sleep_state=""
-sleep_cache="${TMPDIR:-/tmp}/claude-statusline-sleep-${UID}.txt"
-# -L: the python writer opens with O_NOFOLLOW, so a planted symlink would
-# otherwise only poison the read side — refuse it here too.
-if [ -s "$sleep_cache" ] && [ ! -L "$sleep_cache" ]; then
-  # Validate before trusting anything read: a truncated write or a foreign
-  # cache file must degrade to a re-probe (a non-numeric timestamp would be
-  # an arithmetic-expansion error, fatal under set -e), and read's side
-  # effect must never survive the checks — clear sleep_state on any failure.
-  if IFS='|' read -r sleep_ts sleep_state < "$sleep_cache" \
-     && [ -n "$sleep_state" ] && [[ "$sleep_ts" =~ ^[0-9]+$ ]]; then
-    sleep_age=$(( $(date +%s) - sleep_ts ))
-    [ "$sleep_age" -lt 0 ] && sleep_state=""
-    [ "$sleep_age" -ge 15 ] && sleep_state=""
-  else
-    sleep_state=""
+if command -v python3 >/dev/null 2>&1 && command -v pgrep >/dev/null 2>&1 \
+   && command -v pmset >/dev/null 2>&1; then
+  sleep_cache="${TMPDIR:-/tmp}/claude-statusline-sleep-${UID}.txt"
+  # Guarded by the checks above, so a stale cache can never paint the segment
+  # where the probe could not have run (e.g. a shared-home non-macOS box).
+  # -f and ! -L: the python writer opens O_NOFOLLOW|O_NONBLOCK, but bash's
+  # plain open has neither — a planted symlink or FIFO must not be read (or
+  # block the render).
+  if [ -f "$sleep_cache" ] && [ ! -L "$sleep_cache" ]; then
+    # Validate before trusting anything read: a truncated write or a foreign
+    # cache file must degrade to a re-probe — a non-decimal timestamp would
+    # be an arithmetic-expansion error, fatal under set -e (a leading zero
+    # alone is an octal error), and read's side effect must never survive
+    # the checks — clear sleep_state on any failure.
+    if IFS='|' read -r sleep_ts sleep_state < "$sleep_cache" \
+       && [ -n "$sleep_state" ] && [[ "$sleep_ts" =~ ^([1-9][0-9]*|0)$ ]]; then
+      sleep_age=$(( $(date +%s) - sleep_ts ))
+      [ "$sleep_age" -lt 0 ] && sleep_state=""
+      [ "$sleep_age" -ge 15 ] && sleep_state=""
+    else
+      sleep_state=""
+    fi
   fi
-fi
-if [ -z "$sleep_state" ] && command -v python3 >/dev/null 2>&1 \
-   && command -v pgrep >/dev/null 2>&1 && command -v pmset >/dev/null 2>&1; then
-  sleep_state="$(python3 -c '
+  if [ -z "$sleep_state" ]; then
+    sleep_state="$(python3 -c '
 import os, re, subprocess, time
 
 now = int(time.time())
@@ -414,9 +419,18 @@ try:
     ).stdout
 except Exception:
     a = ""
-# System-sleep prevention only: a display-sleep assertion alone keeps the
-# screen on while the system still idle-sleeps, so it reads "sleep on".
-prevented = bool(re.search(r"^\s*Prevent(?:UserIdle)?SystemSleep\s+1\b", a, re.M))
+# System-sleep prevention, counted from the per-process detail rows: the
+# summary booleans at the top always read 1 while powerd holds its "Prevent
+# sleep while display is on" row — i.e. whenever the display is on, which is
+# ordinary active use, not a kept-awake state worth warning about. That row
+# (and only it) is dropped. A display-sleep-only assertion anywhere keeps
+# the screen, not the system, awake, so it never counts either.
+prevented = any(
+    re.search(r"\bPrevent(?:UserIdle)?SystemSleep\b", ln)
+    and "display is on" not in ln
+    for ln in a.splitlines()
+    if ln.lstrip().startswith("pid ")
+)
 try:
     g = subprocess.run(
         ["pmset", "-g"],
@@ -435,15 +449,21 @@ elif sleeps and all(s == 0 for s in sleeps):
 else:
     state = "sleep on"
 try:
-    fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    # Write to a per-pid temp file and rename: concurrent renders never see a
+    # truncated cache mid-write. O_NONBLOCK so a planted FIFO fails open
+    # instead of blocking the render; O_NOFOLLOW rejects planted symlinks.
+    tmp = "%s.%d.tmp" % (cache, os.getpid())
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     with os.fdopen(fd, "w") as f:
         # Trailing newline: bash `read` returns non-zero (and this side would
         # re-probe every render) when the last line is not newline-terminated.
         f.write("%d|%s\n" % (now, state))
+    os.replace(tmp, cache)
 except Exception:
     pass
 print(state)
 ' 2>/dev/null || true)"
+  fi
 fi
 
 # --- Degrade gracefully if JSON/python parsing yielded nothing --------------
