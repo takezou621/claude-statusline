@@ -1,0 +1,29 @@
+README.md
+  s_0085ad9633c5a2::t_7509be242ad80b 8
+  s_0085ad9633c5a2::t_48488767ebbf2a 5
+  s_0085ad9633c5a2::t_3123f5ea68cb24 11
+  s_0085ad9633c5a2::t_f6de43e56bccca 13
+  s_0085ad9633c5a2::t_1598a1dc4740ba 60-75
+  s_0085ad9633c5a2::t_5ccf80d88a4b57 26
+statusline.sh
+  s_0085ad9633c5a2::t_be94c4b7ac632d 371-374,376-383,390-425,427-429
+  s_0085ad9633c5a2::t_dcf2ba4ae54077 478
+  s_0085ad9633c5a2::t_6d2878b4dec3aa 507-517
+  s_0085ad9633c5a2::t_05f326ba419e87 365-370,375,384-389,426,430-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06060ea03becfbc085fa967862c04cb86e951084",
+  "prompts": {},
+  "sessions": {
+    "s_0085ad9633c5a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f5d15a6-a068-47a8-9de9-71a21f913d3e",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "takezou621 <takezou621@gmail.com>"
+    }
+  }
+}
