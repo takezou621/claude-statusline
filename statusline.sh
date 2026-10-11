@@ -362,6 +362,77 @@ emit(*out)
   fi
 fi
 
+# --- Sleep state (macOS) ----------------------------------------------------
+# Whether the machine will idle-sleep or is being kept awake. Kept-awake states,
+# in priority order: a running caffeinate process (any flags, via pgrep -x);
+# sleep-prevention assertions held by any process (pmset -g assertions — e.g.
+# coreaudiod while audio is captured); the power-manager setting itself disabled
+# (pmset -g, every "sleep N" line 0). Otherwise plain "sleep on". pmset/pgrep
+# are macOS-only — elsewhere the segment stays hidden. The python probe runs at
+# most once per 15s TTL: the line renders per token, so every other render just
+# reads the cache file here (one id + one date fork, no interpreter), and a few
+# seconds of stale awake/asleep label is harmless.
+sleep_state=""
+sleep_cache="${TMPDIR:-/tmp}/claude-statusline-sleep-$(id -u).txt"
+if [ -s "$sleep_cache" ]; then
+  if IFS='|' read -r sleep_ts sleep_state < "$sleep_cache" && [ -n "$sleep_state" ]; then
+    [ "$(( $(date +%s) - sleep_ts ))" -ge 15 ] && sleep_state=""
+  fi
+fi
+if [ -z "$sleep_state" ] && command -v python3 >/dev/null 2>&1 \
+   && command -v pgrep >/dev/null 2>&1 && command -v pmset >/dev/null 2>&1; then
+  sleep_state="$(python3 -c '
+import os, re, subprocess, time
+
+now = int(time.time())
+cache = os.path.join(os.environ.get("TMPDIR") or "/tmp",
+                     "claude-statusline-sleep-%d.txt" % os.getuid())
+caffeinate = False
+try:
+    caffeinate = subprocess.run(
+        ["pgrep", "-x", "caffeinate"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    ).returncode == 0
+except OSError:
+    pass
+try:
+    a = subprocess.run(
+        ["pmset", "-g", "assertions"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, timeout=3,
+    ).stdout
+except Exception:
+    a = ""
+# System-sleep prevention only: a display-sleep assertion alone keeps the
+# screen on while the system still idle-sleeps, so it reads "sleep on".
+prevented = bool(re.search(r"^\s*Prevent(?:UserIdle)?SystemSleep\s+1\b", a, re.M))
+try:
+    g = subprocess.run(
+        ["pmset", "-g"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        text=True, timeout=3,
+    ).stdout
+except Exception:
+    g = ""
+sleeps = [int(m) for m in re.findall(r"^\s*sleep\s+(\d+)\b", g, re.M)]
+if caffeinate:
+    state = "caffeinate"
+elif prevented:
+    state = "no-sleep"
+elif sleeps and all(s == 0 for s in sleeps):
+    state = "sleep off"
+else:
+    state = "sleep on"
+try:
+    fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write("%d|%s" % (now, state))
+except Exception:
+    pass
+print(state)
+' 2>/dev/null || true)"
+fi
+
 # --- Degrade gracefully if JSON/python parsing yielded nothing --------------
 if [ -z "$cur_dir" ] || [ ! -d "$cur_dir" ]; then
   cur_dir="$PWD"
@@ -404,6 +475,7 @@ ICON_MODEL="$(printf '\357\225\204')"   # U+F544 robot
 ICON_CTX="$(printf '\357\200\200')"     # U+F080 bar chart
 ICON_QUOTA="$(printf '\357\211\222')"   # U+F252 hourglass
 ICON_JEV="$(printf '\357\204\262')"     # U+F132 shield
+ICON_SLEEP="$(printf '\357\206\206')"   # U+F186 moon
 ICON_TICK="$(printf '\357\200\214')"    # U+F00C check mark  (jev pass count)
 ICON_CROSS="$(printf '\357\200\215')"   # U+F00D cross mark  (jev block count)
 ICON_ALERT="$(printf '\357\201\261')"   # U+F071 warning     (jev escalate count)
@@ -431,6 +503,17 @@ if [ -n "$ctx_pct" ]; then
     ctx_color="$C_WARN"
   fi
   parts+=("${ICON_CTX} ${ctx_color}ctx ${ctx_pct}%${C_RESET}")
+fi
+if [ -n "$sleep_state" ]; then
+  # Sleep state: what keeps the machine awake, or that idle sleep is on.
+  # Yellow for any kept-awake state (a long job may assume the machine stays
+  # up); dim for the plain sleep-on background state.
+  case "$sleep_state" in
+    caffeinate)  parts+=("${ICON_SLEEP} ${C_WARN}caffeinate${C_RESET}") ;;
+    no-sleep)    parts+=("${ICON_SLEEP} ${C_WARN}no-sleep${C_RESET}") ;;
+    "sleep off") parts+=("${ICON_SLEEP} ${C_WARN}sleep off${C_RESET}") ;;
+    *)           parts+=("${ICON_SLEEP} ${C_DIM}sleep on${C_RESET}") ;;
+  esac
 fi
 if [ -n "$jev_state" ]; then
   # Decorate the raw "pass/block/escalate(/failed)" counts so their meaning is
