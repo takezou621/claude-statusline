@@ -84,7 +84,7 @@ chmod +x ~/.claude/sleep-toggle.sh
 bash ~/.claude/sleep-toggle.sh    # prints "sleep prevention: ON/OFF" + state before -> after
 ```
 
-- **What it toggles**: only the caffeinate process — one call starts a persistent `caffeinate -dis`, the next stops every caffeinate. Other processes' `no-sleep` assertions (`coreaudiod`, Handoff, a running call) are reported in the resulting state but never touched, and the system `sleep off`/`sleep on` setting is out of scope (`sudo pmset -a sleep <minutes>` changes it).
+- **What it toggles**: only the caffeinate process — one call starts a persistent `caffeinate -dis`, the next stops every caffeinate. Note that this includes caffeinate processes started for other purposes (e.g. `caffeinate -t 3600` in another terminal): the segment treats any caffeinate as the prevention source, so a leftover one would make the next toggle a no-op. Other processes' `no-sleep` assertions (`coreaudiod`, Handoff, a running call) are reported in the resulting state but never touched, and the system `sleep off`/`sleep on` setting is out of scope (`sudo pmset -a sleep <minutes>` changes it).
 - **From inside Claude Code**: save `~/.claude/commands/sleep-toggle.md` to get a `/sleep-toggle` slash command:
 
   ```markdown

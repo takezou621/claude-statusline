@@ -39,24 +39,52 @@ sleep_state() {
   echo "sleep on"
 }
 
+caffeinate_alive() { pgrep -x caffeinate >/dev/null 2>&1; }
+
 cache="${TMPDIR:-/tmp}/claude-statusline-sleep-${UID}.txt"
 before="$(sleep_state)"
 
-if pgrep -x caffeinate >/dev/null 2>&1; then
+if caffeinate_alive; then
+  # Intentionally every caffeinate: the toggle flips the caffeinate-based
+  # prevention as a whole, and any command-line caffeinate is a user-side
+  # prevention — a stale one left behind would make the next "ON" call
+  # read as a no-op.
+  n_killed="$(pgrep -x caffeinate 2>/dev/null | wc -l | tr -d ' ')"
   pkill -x caffeinate 2>/dev/null || true
-  action="OFF (caffeinate stopped)"
+  wanted="off"
 else
   nohup caffeinate -dis >/dev/null 2>&1 &
-  action="ON (caffeinate -dis, pid $!)"
+  wanted="on"
 fi
 
-# The status line caches the state for 15s — drop it so the very next render
-# already shows the flipped state.
+# The status line caches the state for 15s. Drop the cache twice: now, and
+# again after the settle wait — a probe already in flight when the toggle
+# ran would otherwise write its pre-toggle result back over the cleared
+# cache and the next render would stay stale.
 rm -f "$cache" 2>/dev/null || true
 
-# A beat for caffeinate to register its assertions before re-reporting.
+# A beat for the assertions to move (caffeinate registers or coreaudiod
+# releases them) before verifying and re-reporting.
 sleep 1
+rm -f "$cache" 2>/dev/null || true
 after="$(sleep_state)"
+
+# Report the action only after verifying it took effect: a pkill that
+# failed (e.g. a caffeinate owned by another user) and a caffeinate that
+# died on startup must not print a confident OFF/ON.
+if [ "$wanted" = "off" ]; then
+  if caffeinate_alive; then
+    action="OFF FAILED (a caffeinate process is still running)"
+  else
+    action="OFF (${n_killed} caffeinate process(es) stopped)"
+  fi
+else
+  if caffeinate_alive; then
+    action="ON (caffeinate -dis running, pid $(pgrep -x caffeinate 2>/dev/null | head -1))"
+  else
+    action="ON FAILED (caffeinate did not stay up)"
+  fi
+fi
 
 echo "sleep prevention: $action"
 echo "status line state: $before -> $after"
