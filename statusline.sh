@@ -373,10 +373,21 @@ fi
 # reads the cache file here (one id + one date fork, no interpreter), and a few
 # seconds of stale awake/asleep label is harmless.
 sleep_state=""
-sleep_cache="${TMPDIR:-/tmp}/claude-statusline-sleep-$(id -u).txt"
-if [ -s "$sleep_cache" ]; then
-  if IFS='|' read -r sleep_ts sleep_state < "$sleep_cache" && [ -n "$sleep_state" ]; then
-    [ "$(( $(date +%s) - sleep_ts ))" -ge 15 ] && sleep_state=""
+sleep_cache="${TMPDIR:-/tmp}/claude-statusline-sleep-${UID}.txt"
+# -L: the python writer opens with O_NOFOLLOW, so a planted symlink would
+# otherwise only poison the read side — refuse it here too.
+if [ -s "$sleep_cache" ] && [ ! -L "$sleep_cache" ]; then
+  # Validate before trusting anything read: a truncated write or a foreign
+  # cache file must degrade to a re-probe (a non-numeric timestamp would be
+  # an arithmetic-expansion error, fatal under set -e), and read's side
+  # effect must never survive the checks — clear sleep_state on any failure.
+  if IFS='|' read -r sleep_ts sleep_state < "$sleep_cache" \
+     && [ -n "$sleep_state" ] && [[ "$sleep_ts" =~ ^[0-9]+$ ]]; then
+    sleep_age=$(( $(date +%s) - sleep_ts ))
+    [ "$sleep_age" -lt 0 ] && sleep_state=""
+    [ "$sleep_age" -ge 15 ] && sleep_state=""
+  else
+    sleep_state=""
   fi
 fi
 if [ -z "$sleep_state" ] && command -v python3 >/dev/null 2>&1 \
@@ -426,7 +437,9 @@ else:
 try:
     fd = os.open(cache, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as f:
-        f.write("%d|%s" % (now, state))
+        # Trailing newline: bash `read` returns non-zero (and this side would
+        # re-probe every render) when the last line is not newline-terminated.
+        f.write("%d|%s\n" % (now, state))
 except Exception:
     pass
 print(state)
