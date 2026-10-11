@@ -73,6 +73,30 @@ macOS only. The segment reports whether the machine will idle-sleep or is being 
 - **Cached**: at most one probe per 15 s — every other render reads the small cache file (`${TMPDIR:-/tmp}/claude-statusline-sleep-<uid>.txt`, created `0600` with `O_NOFOLLOW`) in plain bash, with no interpreter start.
 - **Graceful**: hidden entirely where `pmset`/`pgrep` are unavailable (Linux, WSL, containers).
 
+## Sleep toggle
+
+The companion script `sleep-toggle.sh` flips the caffeinate-based prevention on and off and clears the status line's 15 s cache, so the very next render already shows the flipped state:
+
+```bash
+curl -fsSL -o ~/.claude/sleep-toggle.sh \
+  https://raw.githubusercontent.com/takezou621/claude-statusline/main/sleep-toggle.sh
+chmod +x ~/.claude/sleep-toggle.sh
+bash ~/.claude/sleep-toggle.sh    # prints "sleep prevention: ON/OFF" + state before -> after
+```
+
+- **What it toggles**: only the caffeinate process — one call starts a persistent `caffeinate -dis`, the next stops every caffeinate. Other processes' `no-sleep` assertions (`coreaudiod`, Handoff, a running call) are reported in the resulting state but never touched, and the system `sleep off`/`sleep on` setting is out of scope (`sudo pmset -a sleep <minutes>` changes it).
+- **From inside Claude Code**: save `~/.claude/commands/sleep-toggle.md` to get a `/sleep-toggle` slash command:
+
+  ```markdown
+  ---
+  description: Toggle sleep prevention (the status line's sleep segment)
+  allowed-tools: Bash(bash ~/.claude/sleep-toggle.sh)
+  ---
+  !bash ~/.claude/sleep-toggle.sh
+  ```
+
+- **As a plain shortcut**: `alias sleep-toggle='bash ~/.claude/sleep-toggle.sh'` in your shell rc, or bind that command to a key in your terminal of choice — the script prints the before/after state in one line.
+
 ## Install
 
 ```bash
