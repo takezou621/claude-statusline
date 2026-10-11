@@ -1,0 +1,22 @@
+sleep-toggle.sh
+  s_0085ad9633c5a2::t_4f25e3385d0c51 47-72
+README.md
+  s_0085ad9633c5a2::t_d84fb54fa97cdb 91,95-96,98
+  s_0085ad9633c5a2::t_d077ed4a1f504e 84-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3afa497c80c0d726d224f062ae5f2021ae6eff71",
+  "prompts": {},
+  "sessions": {
+    "s_0085ad9633c5a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f5d15a6-a068-47a8-9de9-71a21f913d3e",
+        "model": "glm-5.3-flash"
+      },
+      "human_author": "takezou621 <takezou621@gmail.com>"
+    }
+  }
+}
