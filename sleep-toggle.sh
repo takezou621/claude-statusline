@@ -44,6 +44,32 @@ caffeinate_alive() { pgrep -x caffeinate >/dev/null 2>&1; }
 cache="${TMPDIR:-/tmp}/claude-statusline-sleep-${UID}.txt"
 before="$(sleep_state)"
 
+# Optional argument: "on"/"caffeinate" forces the prevention on, "off" forces
+# it off (both idempotent), "status" only reports. No argument toggles.
+mode="toggle"
+case "${1:-}" in
+  "")              mode="toggle" ;;
+  on|caffeinate)   mode="on" ;;
+  off)             mode="off" ;;
+  status)          mode="status" ;;
+  *) echo "usage: sleep-toggle.sh [on|caffeinate|off|status]" >&2; exit 2 ;;
+esac
+
+if [ "$mode" = "status" ]; then
+  echo "status line state: $before"
+  exit 0
+fi
+if [ "$mode" = "on" ] && caffeinate_alive; then
+  echo "sleep prevention: already ON (caffeinate -dis running, pid $(pgrep -x caffeinate 2>/dev/null | head -1))"
+  echo "status line state: $before"
+  exit 0
+fi
+if [ "$mode" = "off" ] && ! caffeinate_alive; then
+  echo "sleep prevention: already OFF (no caffeinate running)"
+  echo "status line state: $before"
+  exit 0
+fi
+
 if caffeinate_alive; then
   # Intentionally every caffeinate: the toggle flips the caffeinate-based
   # prevention as a whole, and any command-line caffeinate is a user-side
